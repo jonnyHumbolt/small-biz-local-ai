@@ -1,0 +1,18 @@
+# Local Virtual Environments
+venv/
+.venv/
+env/
+
+# Python caching and byte-code
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local Database Files (We keep the schemas/scripts public, but keep the raw binary data hidden)
+*.db
+*.sqlite3
+
+# Docker and OS specific files
+.DS_Store
+.docker/
