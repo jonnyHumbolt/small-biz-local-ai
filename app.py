@@ -1,111 +1,96 @@
-import sqlite3
+import os
 import streamlit as st
-import ollama
+import requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-# Page Configuration
-st.set_page_config(page_title="Bayou Fresh Grocers - AI Procurement", page_icon="🥦", layout="wide")
+# 🔒 Pull configuration dynamically from our secured container environment variables
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_NAME = os.getenv("DB_NAME", "inventory_db")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "local_secure_pass")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
-st.title("🥦 Bayou Fresh Grocers")
-st.subheader("Autonomous Inventory & AI Procurement Portal")
-st.markdown("---")
+def get_db_connection():
+    """Establishes a connection thread to the containerized PostgreSQL cluster."""
+    return psycopg2.connect(
+        host=DB_HOST,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        cursor_factory=RealDictCursor
+    )
 
-def get_full_inventory():
-    """Fetches the entire inventory list to display a master visual status table."""
-    conn = sqlite3.connect("inventory.db")
+def query_low_stock_items():
+    """Queries the enterprise database cluster for critical stock parameters."""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    query = """
-        SELECT i.item_name, i.current_stock, i.reorder_level, s.supplier_name
-        FROM inventory i
-        JOIN suppliers s ON i.supplier_id = s.id
-    """
-    cursor.execute(query)
-    rows = cursor.fetchall()
+    cursor.execute("""
+        SELECT item_name, current_stock, minimum_threshold, vendor_email, status 
+        FROM inventory_health 
+        WHERE status = 'CRITICAL_LOW';
+    """)
+    records = cursor.fetchall()
+    cursor.close()
     conn.close()
-    return rows
+    return records
 
-def get_low_stock():
-    """Queries only the data subsets that have breached safety thresholds."""
-    conn = sqlite3.connect("inventory.db")
-    cursor = conn.cursor()
-    query = """
-        SELECT i.item_name, i.current_stock, i.reorder_level, s.supplier_name, s.contact_email
-        FROM inventory i
-        JOIN suppliers s ON i.supplier_id = s.id
-        WHERE i.current_stock < i.reorder_level
-    """
-    cursor.execute(query)
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+# --- Streamlit Visual UI Layout Assembly ---
+st.set_page_config(page_title="Bayou Produce Logistics Dashboard", page_icon="📦", layout="wide")
+st.title("📦 Bayou Produce Logistics Automation Engine")
+st.subheader("Decoupled Enterprise Local AI Core (Phase 4 Deployment)")
 
-# Create Layout Columns: Left side for live data, Right side for AI operations
-col1, col2 = st.columns([1, 1], gap="large")
+st.write("This dashboard monitors our local relational PostgreSQL layer inside a decoupled virtual container network, executing automated procurement logic on-premise.")
 
-with col1:
-    st.header("📦 Real-Time Inventory Monitoring")
-    if st.button("🔄 Refresh Database Status"):
-        st.toast("Database pipeline re-indexed!")
+# Active Database Records Table Rendering
+st.markdown("### 📊 Active Supply Chain Anomalies")
+low_stock_data = query_low_stock_items()
 
-    # Master Inventory Table Visual
-    all_items = get_full_inventory()
-    inventory_data = []
-    for item in all_items:
-        # Determine status marker
-        status = "🟢 Healthy" if item[1] >= item[2] else "🚨 Critical Shortage"
-        inventory_data.append({
-            "Item Name": item[0],
-            "Current Stock": item[1],
-            "Reorder Threshold": item[2],
-            "Assigned Vendor": item[3],
-            "Status": status
-        })
-    st.dataframe(inventory_data, use_container_width=True, hide_index=True)
-
-with col2:
-    st.header("🤖 AI Automated Procurement Engine")
-    shortages = get_low_stock()
-
-    if not shortages:
-        st.success("All inventory levels are safe. No procurement tasks flagged.")
-    else:
-        st.warning(f"System flagged **{len(shortages)}** critical shortages requiring active orders.")
+if low_stock_data:
+    st.error(f"Alert: Detected {len(low_stock_data)} logistics bottlenecks requiring automated procurement actions.")
+    for item in low_stock_data:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric(label="Item Name", value=item['item_name'])
+        with col2:
+            st.metric(label="Current Stock", value=f"{item['current_stock']} units", delta=f"-{item['minimum_threshold'] - item['current_stock']} below safety limit", delta_color="inverse")
+        with col3:
+            st.metric(label="Safety Threshold", value=f"{item['minimum_threshold']} units")
+        with col4:
+            st.text(f"Assigned Vendor:\n{item['vendor_email']}")
         
-        # Display identified bottleneck items inside a scannable bullet list
-        for item in shortages:
-            st.markdown(f"- **{item[0]}**: Stock level at `{item[1]}` (Threshold: {item[2]})")
-        
-        st.markdown("### Generate Restock Communication")
-        # Action button to trigger local inference
-        if st.button("⚡ Run Local AI Agent Pipeline"):
-            with st.spinner("Invoking local llama3.2:1b model..."):
-                try:
-		   # ⚠️ ADD THIS LINE RIGHT HERE: Directs Python to the separate AI backend container
-                    ollama.CLIENT_HOST = "http://ai-backend:11434"
-                    # Construct data string for the LLM
-                    vendor_name = shortages[0][3]
-                    vendor_email = shortages[0][4]
-                    items_string = "".join([f"- {row[0]}: Stock {row[1]}, Threshold {row[2]}\n" for row in shortages])
-                    
-                    prompt = f"""
-                    You are an automated logistics assistant for a grocery store.
-                    Review the following inventory shortages for our vendor, {vendor_name}.
-                    Write a concise, professional procurement email requesting a restock delivery for these specific items.
-                    
-                    ITEMS TO REORDER:
-                    {items_string}
-                    
-                    Output ONLY the raw email text. Do not include any chatty openings, greetings to the programmer, markdown block ticks, or follow-up notes.
-                    """
-                    
-                    # Connect to local background service
-                    response = ollama.generate(model="llama3.2:1b", prompt=prompt)
-                    email_draft = response['response'].strip()
-                    
-                    # Display structured output panel components
-                    st.success("AI Drafting Completed Successfully!")
-                    st.text_input("Recipient Vendor Email", value=vendor_email, disabled=True)
-                    st.text_input("Email Subject Line", value=f"URGENT: Purchase Order Restock - Bayou Fresh Grocers", disabled=True)
-                    st.text_area("Generated Document Body", value=email_draft, height=250)
-                    
-                except Exception as e:
-                    st.error(f"Failed to communicate with local AI core: {e}")
+        # Unique target triggers for each independent item anomaly
+        if st.button(f"Generate Procurement Draft for {item['item_name']}", key=item['item_name']):
+            st.info(f"Assembling contextual logistics schema payload and transferring to local LLM core...")
+            
+            # Formulate the contextual input string prompt for the 1B parameter model
+            prompt_context = f"""
+            You are an automated logistics management system operating at Bayou Produce Distribution.
+            An inventory threshold breach has occurred for the following item:
+            - Item: {item['item_name']}
+            - Current Stock Level: {item['current_stock']} units
+            - Target Safety Limit: {item['minimum_threshold']} units
+            - Vendor Assignment Point: {item['vendor_email']}
+            
+            Write a formal, brief procurement order email directed to the vendor assignment point requesting an expedited replenishment delivery of this product to reset our warehouse safety levels. Maintain a clear, professional supply chain tone. Do not generate placeholder text.
+            """
+            
+            try:
+                # Transmit inference payload request across the internal Docker virtual bridge
+                response = requests.post(
+                    f"{OLLAMA_HOST}/api/generate",
+                    json={"model": "llama3.2:1b", "prompt": prompt_context, "stream": False},
+                    timeout=45
+                )
+                
+                if response.status_code == 200:
+                    generated_draft = response.json().get("response", "Error: Failed to safely parse output string.")
+                    st.success("📬 Automated Vendor Procurement Order Draft Assembled Successfully!")
+                    st.text_area(label="Staged Email Transmission Text Container", value=generated_draft, height=280)
+                else:
+                    st.error(f"Failed to communicate with inference engine. Status: {response.status_code}")
+            except Exception as e:
+                st.error(f"Inference pipeline timeout or processing break: {e}")
+        st.markdown("---")
+else:
+    st.success("✅ All warehouse stock metrics currently reside safely above operating baselines.")
