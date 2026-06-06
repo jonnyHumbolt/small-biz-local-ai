@@ -4,7 +4,7 @@ services:
     build: .
     container_name: grocery_ai_frontend
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501" # 🔒 Locked to your physical laptop only
     volumes:
       - .:/app
     environment:
@@ -13,7 +13,6 @@ services:
       - DB_NAME=inventory_db
       - DB_USER=postgres
       - DB_PASSWORD=local_secure_pass
-      # 📡 New environment variable directing outbound webhooks to our mock container
       - VENDOR_API_URL=http://mock-vendor:5000/api/v1/orders
     depends_on:
       - ai-database
@@ -34,7 +33,7 @@ services:
     image: postgres:17-alpine
     container_name: grocery_ai_database
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432" # 🔒 Database isolated from your local Wi-Fi network
     environment:
       - POSTGRES_DB=inventory_db
       - POSTGRES_USER=postgres
@@ -51,7 +50,7 @@ services:
     working_dir: /app
     command: sh -c "pip install flask && python mock_vendor_api.py"
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000" # 🔒 Mock gateway isolated to localhost
 
 volumes:
   postgres_data:
