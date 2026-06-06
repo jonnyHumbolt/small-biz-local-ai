@@ -11,6 +11,9 @@ DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "local_secure_pass")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
+# 📡 New gateway endpoint routing target
+VENDOR_API_URL = os.getenv("VENDOR_API_URL", "http://localhost:5000/api/v1/orders")
+
 def get_db_connection():
     """Establishes a connection thread to the containerized PostgreSQL cluster."""
     return psycopg2.connect(
@@ -38,9 +41,9 @@ def query_low_stock_items():
 # --- Streamlit Visual UI Layout Assembly ---
 st.set_page_config(page_title="Bayou Produce Logistics Dashboard", page_icon="📦", layout="wide")
 st.title("📦 Bayou Produce Logistics Automation Engine")
-st.subheader("Decoupled Enterprise Local AI Core (Phase 4 Deployment)")
+st.subheader("Decoupled Enterprise Local AI Core (Phase 5 Deployment)")
 
-st.write("This dashboard monitors our local relational PostgreSQL layer inside a decoupled virtual container network, executing automated procurement logic on-premise.")
+st.write("This dashboard monitors our local relational PostgreSQL layer inside a decoupled virtual container network, executing automated procurement logic and outbound webhook transfers on-premise.")
 
 # Active Database Records Table Rendering
 st.markdown("### 📊 Active Supply Chain Anomalies")
@@ -60,7 +63,7 @@ if low_stock_data:
             st.text(f"Assigned Vendor:\n{item['vendor_email']}")
         
         # Unique target triggers for each independent item anomaly
-        if st.button(f"Generate Procurement Draft for {item['item_name']}", key=item['item_name']):
+        if st.button(f"Generate Procurement Draft for {item['item_name']}", key=f"gen_{item['item_name']}"):
             st.info(f"Assembling contextual logistics schema payload and transferring to local LLM core...")
             
             # Formulate the contextual input string prompt for the 1B parameter model
@@ -86,11 +89,48 @@ if low_stock_data:
                 if response.status_code == 200:
                     generated_draft = response.json().get("response", "Error: Failed to safely parse output string.")
                     st.success("📬 Automated Vendor Procurement Order Draft Assembled Successfully!")
-                    st.text_area(label="Staged Email Transmission Text Container", value=generated_draft, height=280)
+                    
+                    # Store the text inside a text_area that users can manually modify if necessary
+                    edited_draft = st.text_area(
+                        label="Staged Email Transmission Text Container", 
+                        value=generated_draft, 
+                        height=280,
+                        key=f"text_{item['item_name']}"
+                    )
+                    
+                    # Store variables in session state to handle the secondary action button neatly
+                    st.session_state[f"draft_{item['item_name']}"] = edited_draft
+                    
                 else:
                     st.error(f"Failed to communicate with inference engine. Status: {response.status_code}")
             except Exception as e:
                 st.error(f"Inference pipeline timeout or processing break: {e}")
+        
+        # Check if a draft exists in memory to display the active outbound webhook trigger button
+        if f"draft_{item['item_name']}" in st.session_state:
+            st.markdown("#### 🚀 Automated Routing Core")
+            if st.button(f"Transmit Document to Vendor Network via Webhook", key=f"send_{item['item_name']}"):
+                st.info("Serializing document structures and executing HTTP POST transaction...")
+                
+                # Bundle the data payload cleanly into a JSON serialization structure
+                webhook_payload = {
+                    "item_name": item['item_name'],
+                    "vendor_email": item['vendor_email'],
+                    "procurement_draft": st.session_state[f"draft_{item['item_name']}"]
+                }
+                
+                try:
+                    # Fire the automated outbound transaction across the Docker network bridge
+                    res = requests.post(VENDOR_API_URL, json=webhook_payload, timeout=10)
+                    
+                    if res.status_code == 200:
+                        server_response = res.json().get("message", "Processed successfully.")
+                        st.success(f"📥 Transaction Confirmed by Remote Endpoint: {server_response}")
+                    else:
+                        st.error(f"Webhook rejected by target gateway. Status Code: {res.status_code}")
+                except Exception as ex:
+                    st.error(f"Network transport level connection failure: {ex}")
+                    
         st.markdown("---")
 else:
     st.success("✅ All warehouse stock metrics currently reside safely above operating baselines.")

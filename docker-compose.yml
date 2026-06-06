@@ -9,20 +9,22 @@ services:
       - .:/app
     environment:
       - OLLAMA_HOST=http://ai-backend:11434
-      # We add database credentials as environment variables for runtime security
       - DB_HOST=ai-database
       - DB_NAME=inventory_db
       - DB_USER=postgres
       - DB_PASSWORD=local_secure_pass
+      # 📡 New environment variable directing outbound webhooks to our mock container
+      - VENDOR_API_URL=http://mock-vendor:5000/api/v1/orders
     depends_on:
       - ai-database
       - ai-backend
+      - mock-vendor
 
   # CONTAINER 2: The Isolated Local AI Engine
   ai-backend:
     image: ollama/ollama:latest
     container_name: grocery_ai_backend
-    ports:
+    expose:
       - "11434"
     volumes:
       - ~/.ollama:/root/.ollama
@@ -38,8 +40,18 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=local_secure_pass
     volumes:
-      # This saves the relational records inside a dedicated Docker volume
       - postgres_data:/var/lib/postgresql/data
+
+  # CONTAINER 4: The Mock Vendor Receiving Gateway
+  mock-vendor:
+    image: python:3.11-slim
+    container_name: mock_vendor_system
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: sh -c "pip install flask && python mock_vendor_api.py"
+    ports:
+      - "5000:5000"
 
 volumes:
   postgres_data:
