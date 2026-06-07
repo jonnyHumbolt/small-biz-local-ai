@@ -10,9 +10,7 @@ from psycopg2.extras import RealDictCursor
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler() # Output directly to container logs for real-time observability
-    ]
+    handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger("grocery_ai_frontend")
 
@@ -25,22 +23,18 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 VENDOR_API_URL = os.getenv("VENDOR_API_URL", "http://localhost:5000/api/v1/orders")
 
 def get_db_connection():
-    """Establishes a connection thread to the containerized PostgreSQL cluster with graceful failover."""
+    """Establishes a connection thread to the containerized PostgreSQL cluster."""
     try:
         return psycopg2.connect(
-            host=DB_HOST,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            cursor_factory=RealDictCursor,
-            connect_timeout=5 # Prevent hanging indefinitely if DB is unresponsive
+            host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASSWORD,
+            cursor_factory=RealDictCursor, connect_timeout=5
         )
     except psycopg2.OperationalError as err:
         logger.error(f"Database infrastructure connection crash: {err}")
         raise err
 
 def query_low_stock_items():
-    """Queries the enterprise database cluster for critical stock parameters with error mitigation."""
+    """Queries the database cluster for critical stock parameters."""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -52,28 +46,68 @@ def query_low_stock_items():
         records = cursor.fetchall()
         cursor.close()
         conn.close()
-        logger.info(f"Successfully polled data layer. Found {len(records)} active anomalies.")
         return records, None
     except Exception as ex:
-        # Catch connection failures and pass the context up to the UI gracefully
-        return [], f"The persistence data layer is currently unreachable or initializing. Detail: {ex}"
+        return [], f"The persistence data layer is currently unreachable. Detail: {ex}"
+
+# 🧠 NEW RAG MECHANISM: VECTOR RECALL ENGINE
+def retrieve_vector_context(search_term):
+    """
+    Executes a semantic database search using cosine distance vector operations.
+    Bypasses local PyTorch completely by offloading matching to PostgreSQL!
+    """
+    try:
+        # Step A: Ask your local running Llama 3.2 1B model to generate an embedding array for the item name
+        # This keeps our frontend 100% free of heavy sentence-transformer libraries!
+        logger.info(f"Generating ad-hoc query embedding array via Ollama for term: '{search_term}'")
+        emb_res = requests.post(
+            f"{OLLAMA_HOST}/api/embeddings",
+            json={"model": "llama3.2:1b", "prompt": search_term},
+            timeout=10
+        )
+        
+        if emb_res.status_code != 200:
+            logger.warning("Ollama embedding extraction returned a non-200 state.")
+            return ""
+            
+        query_vector = emb_res.json().get("embedding")
+        
+        # Step B: Perform a Cosine Distance (<=>) vector search inside the database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # We query the database to find the text snippet closest to our item coordinate
+        cursor.execute("""
+            SELECT content, (embedding <=> %s::vector) AS distance 
+            FROM vendor_knowledge_vectors 
+            ORDER BY distance ASC 
+            LIMIT 1;
+        """, (query_vector,))
+        
+        best_match = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if best_match and best_match['distance'] < 0.6: # Confidence boundary threshold filter
+            logger.info(f"Vector Match Found! Distance: {round(best_match['distance'], 4)}")
+            return best_match['content']
+        else:
+            logger.info("No highly relevant semantic vector context matched this query item.")
+            return ""
+    except Exception as ex:
+        logger.error(f"Vector memory retrieval failure: {ex}")
+        return ""
 
 # --- Streamlit Visual UI Layout Assembly ---
 st.set_page_config(page_title="Bayou Produce Logistics Dashboard", page_icon="📦", layout="wide")
 st.title("📦 Bayou Produce Logistics Automation Engine")
-st.subheader("Decoupled Enterprise Local AI Core (Phase 6 Production Hardened)")
+st.subheader("Decoupled Enterprise Local AI Core (Phase 7 Local RAG Active)")
 
-st.write("This dashboard monitors our local relational PostgreSQL layer inside a decoupled virtual container network, executing automated procurement logic and outbound webhook transfers on-premise.")
-
-# Active Database Records Table Rendering
 st.markdown("### 📊 Active Supply Chain Anomalies")
 low_stock_data, db_error = query_low_stock_items()
 
-# 🛡️ GRACEFUL ERROR HANDLING INTERFACE
 if db_error:
-    st.warning("⚠️ System Hardening Fallback Triggered")
     st.error(db_error)
-    st.info("The application logging matrix has cataloged this event. Please verify that your container infrastructure is fully provisioned (`docker compose ps`).")
 elif low_stock_data:
     st.error(f"Alert: Detected {len(low_stock_data)} logistics bottlenecks requiring automated procurement actions.")
     for item in low_stock_data:
@@ -87,10 +121,15 @@ elif low_stock_data:
         with col4:
             st.text(f"Assigned Vendor:\n{item['vendor_email']}")
         
-        # Unique target triggers for each independent item anomaly
         if st.button(f"Generate Procurement Draft for {item['item_name']}", key=f"gen_{item['item_name']}"):
             logger.info(f"Inference pipeline initialization requested for item: '{item['item_name']}'")
-            st.info(f"Assembling contextual logistics schema payload and transferring to local LLM core...")
+            st.info(f"Assembling contextual logistics schema payload and searching vector memories...")
+            
+            # 🔥 EXECUTING THE LOCAL RAG INJECTION
+            retrieved_policy = retrieve_vector_context(item['item_name'])
+            
+            if retrieved_policy:
+                st.caption(f"💡 **Retrieved System Context Matrix:** _{retrieved_policy}_")
             
             prompt_context = f"""
             You are an automated logistics management system operating at Bayou Produce Distribution.
@@ -100,29 +139,25 @@ elif low_stock_data:
             - Target Safety Limit: {item['minimum_threshold']} units
             - Vendor Assignment Point: {item['vendor_email']}
             
-            Write a formal, brief procurement order email directed to the vendor assignment point requesting an expedited replenishment delivery of this product to reset our warehouse safety levels. Maintain a clear, professional supply chain tone. Do not generate placeholder text.
+            CRITICAL ADDITIONAL VENDOR CONTEXT FOUND IN VECTOR MEMORIES:
+            {retrieved_policy if retrieved_policy else "No historical records matched this specific item routing."}
+            
+            Write a formal, brief procurement order email directed to the vendor assignment point requesting an expedited replenishment delivery of this product to reset our warehouse safety levels. If the vendor context dictates special shipping instructions or terms based on stock levels, explicitly include those professional demands in the email text. Maintain a clear supply chain tone.
             """
             
-            # ⏱️ INFRASTRUCTURE TELEMETRY: START PERFORMANCE TIMER
             start_time = time.time()
-            
             try:
                 response = requests.post(
                     f"{OLLAMA_HOST}/api/generate",
                     json={"model": "llama3.2:1b", "prompt": prompt_context, "stream": False},
-                    timeout=45 # Hard fence to prevent application hangs during heavy hardware strains
+                    timeout=45
                 )
-                
-                # ⏱️ INFRASTRUCTURE TELEMETRY: COMPUTE ELAPSED TIME
                 latency = round(time.time() - start_time, 2)
                 
                 if response.status_code == 200:
-                    generated_draft = response.json().get("response", "Error: Failed to safely parse output string.")
-                    
-                    # Log telemetric output data to terminal logs
-                    logger.info(f"Local LLM Inference Complete. Latency: {latency}s | Token Payload generated for '{item['item_name']}'")
-                    
-                    st.success(f"📬 Automated Vendor Procurement Order Draft Assembled Successfully! (Inference Latency: {latency}s)")
+                    generated_draft = response.json().get("response", "Error: Failed to parse output.")
+                    logger.info(f"Local LLM Inference Complete. Latency: {latency}s")
+                    st.success(f"📬 Automated Vendor Procurement Order Draft Assembled! (Latency: {latency}s)")
                     
                     edited_draft = st.text_area(
                         label="Staged Email Transmission Text Container", 
@@ -132,43 +167,27 @@ elif low_stock_data:
                     )
                     st.session_state[f"draft_{item['item_name']}"] = edited_draft
                 else:
-                    logger.warning(f"Ollama backend returned non-200 state: {response.status_code}")
-                    st.error(f"Failed to communicate with inference engine. Status: {response.status_code}")
-                    
-            except requests.exceptions.Timeout:
-                latency = round(time.time() - start_time, 2)
-                logger.error(f"Local inference engine timeout triggered after {latency}s under heavy hardware load.")
-                st.error("🚨 Local AI Inference Timeout: The system took longer than 45 seconds to generate a response. Please check local hardware utilization.")
+                    st.error(f"Failed to communicate with engine. Status: {response.status_code}")
             except Exception as e:
-                logger.error(f"Critical execution break in local inference pipeline: {e}")
                 st.error(f"Inference pipeline transport break: {e}")
         
         # Webhook routing mechanism
         if f"draft_{item['item_name']}" in st.session_state:
             st.markdown("#### 🚀 Automated Routing Core")
             if st.button(f"Transmit Document to Vendor Network via Webhook", key=f"send_{item['item_name']}"):
-                logger.info(f"Outbound transmission pipeline initiated for payload: '{item['item_name']}'")
-                st.info("Serializing document structures and executing HTTP POST transaction...")
-                
                 webhook_payload = {
                     "item_name": item['item_name'],
                     "vendor_email": item['vendor_email'],
                     "procurement_draft": st.session_state[f"draft_{item['item_name']}"]
                 }
-                
                 try:
                     res = requests.post(VENDOR_API_URL, json=webhook_payload, timeout=10)
                     if res.status_code == 200:
-                        server_response = res.json().get("message", "Processed successfully.")
-                        logger.info(f"Webhook transmission confirmed by remote gateway. Destination: {VENDOR_API_URL}")
-                        st.success(f"📥 Transaction Confirmed by Remote Endpoint: {server_response}")
+                        st.success(f"📥 Transaction Confirmed by Remote Endpoint: {res.json().get('message')}")
                     else:
-                        logger.warning(f"Remote gateway rejected webhook format. Status: {res.status_code}")
                         st.error(f"Webhook rejected by target gateway. Status Code: {res.status_code}")
                 except Exception as ex:
-                    logger.error(f"Network transport level connection failure during outbound webhook transmission: {ex}")
                     st.error(f"Network transport level connection failure: {ex}")
-                    
         st.markdown("---")
 else:
     st.success("✅ All warehouse stock metrics currently reside safely above operating baselines.")

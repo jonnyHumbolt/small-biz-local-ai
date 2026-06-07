@@ -28,12 +28,12 @@ services:
     volumes:
       - ~/.ollama:/root/.ollama
 
-  # CONTAINER 3: The Enterprise Data Layer
+  # CONTAINER 3: The Enterprise Data Layer (Upgraded for Vector Memory)
   ai-database:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: grocery_ai_database
     ports:
-      - "127.0.0.1:5432:5432" # 🔒 Database isolated from your local Wi-Fi network
+      - "127.0.0.1:5432:5432"
     environment:
       - POSTGRES_DB=inventory_db
       - POSTGRES_USER=postgres

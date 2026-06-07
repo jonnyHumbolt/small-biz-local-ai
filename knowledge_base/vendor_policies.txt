@@ -1,0 +1,5 @@
+Bayou Produce Vendor Delivery Policies & Logistics Notes:
+1. Orchard Fresh Distribution handles our regional Organic Banana fulfillment routing. Their standard shipping times from the Texas hub to the Lake Charles warehouse average a 3-day transit window due to mandatory interstate weight inspections. 
+2. Green Valley Growers handles our citrus and Hass Avocado contracts. They operate a localized cross-dock facility that guarantees next-day hot-shot delivery for any inventory breaches flagged before 11:00 AM local time.
+3. All procurement orders sent to Orchard Fresh Distribution must explicitly request 'Expedited Cross-Dock Routing' if local warehouse inventory levels fall below 15 units, otherwise, the cargo faces standard freight terminal delays.
+
