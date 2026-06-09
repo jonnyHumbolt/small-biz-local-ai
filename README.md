@@ -6,11 +6,12 @@ This system is explicitly engineered to run entirely on restricted hardware (**8
 
 ## ⚡ Core Architecture & Tech Stack
 
-* **Inference Engine:** [Ollama](https://ollama.ai/) running `llama3.2:1b` (optimized for local CPU/GPU execution).
+* **Inference Engine:** [Ollama](https://ollama.ai/) running `llama3.2:1b` (optimized for local CPU execution).
 * **Database:** PostgreSQL upgraded with the `pgvector` extension for native similarity search.
 * **Backend & Orchestration:** Python (psycopg2, sentence-transformers, PyTorch).
 * **Environment:** Fully containerized via Docker & Docker Compose.
-* **Interfaces:** * Streamlit Web Dashboard for visual anomaly detection.
+* **Interfaces:** 
+  * Streamlit Web Dashboard for visual anomaly detection.
   * Interactive Terminal CLI for Agentic Tool Calling.
 
 ---
@@ -36,6 +37,9 @@ Decoupled the AI from the visual dashboard, establishing a natural-language oper
 ```bash
 git clone [https://github.com/jonnyHumbolt/small-biz-local-ai.git](https://github.com/jonnyHumbolt/small-biz-local-ai.git)
 cd small-biz-local-ai
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 
 2. Boot the Infrastructure
 
@@ -62,6 +66,3 @@ Example CLI Prompts:
 🔒 Privacy & Economics
 
 By executing all mathematical embeddings and conversational inferences locally, this architecture guarantees zero data leakage to external APIs. Furthermore, it consolidates ERP, database hosting, and LLM automation into a single local machine environment, reducing monthly operational software overhead to $0.
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
